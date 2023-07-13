@@ -2,6 +2,11 @@ from snowflake.snowpark import Session
 import os
 from typing import Optional
 
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric.types import PRIVATE_KEY_TYPES
+from cryptography.hazmat.primitives import serialization
+
+
 # Class to store a singleton connection option
 class SnowflakeConnection(object):
     _connection = None
@@ -14,12 +19,48 @@ class SnowflakeConnection(object):
     def connection(self, val):
         type(self)._connection = val
 
+
+def _get_private_key() -> PRIVATE_KEY_TYPES:
+    with open(os.environ['SNOWFLAKE_P8_FILE'], "rb") as key:
+        p_key= serialization.load_pem_private_key(
+            key.read(),
+            password=os.environ['SNOWSQL_PRIVATE_KEY_PASSPHRASE'].encode(),
+            backend=default_backend()
+        )
+        return p_key
+
+
+def _get_connection_params(private_key: PRIVATE_KEY_TYPES) -> dict:
+    pkb = private_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+        )
+    return {
+        "account": os.environ['SNOWFLAKE_ACCOUNT'],
+        "user": os.environ['SNOWFLAKE_USER'],
+        "role": os.environ['SNOWFLAKE_ROLE'],
+        "private_key": pkb,
+        "warehouse": os.environ['SNOWFLAKE_WAREHOUSE'],
+        "database": os.environ['SNOWFLAKE_DATABASE'],
+        "schema": os.environ['SNOWFLAKE_SCHEMA'],
+    }
+
+
+def _get_key_pair_auth_session() -> Session:
+    private_key = _get_private_key()
+    connection_params = _get_connection_params(private_key)
+    return Session.builder.configs(connection_params).create()
+
+
 # Function to return a configured Snowpark session
 def get_snowpark_session() -> Session:
     # if running in snowflake
     if SnowflakeConnection().connection:
         # Not sure what this does?
         session = SnowflakeConnection().connection
+    elif "SNOWFLAKE_P8_FILE" in os.environ:
+        SnowflakeConnection().connection = _get_key_pair_auth_session()
     # if running locally with a config file
     # TODO: Look for a creds.json style file. This should be the way all snowpark
     # related tools work IMO
