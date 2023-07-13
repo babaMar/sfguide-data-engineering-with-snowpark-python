@@ -1,0 +1,5 @@
+from os import getenv
+
+POS_SCHEMA = getenv('SNOWFLAKE_POS_SCHEMA', 'RAW_POS')
+CUSTOMER_SCHEMA = getenv('SNOWFLAKE_CUSTOMER_SCHEMA', 'RAW_CUSTOMER')
+
